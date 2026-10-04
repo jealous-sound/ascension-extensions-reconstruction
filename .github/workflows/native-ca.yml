@@ -10,6 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 -B tests/native_ca_packets.py
+      - run: python3 -B tests/native_callback_order.py
   windows-dll:
     runs-on: windows-2022
     steps:

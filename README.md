@@ -35,6 +35,16 @@ The portable regression in `tests/native_ca_packets.py` compiles the production 
 against client API doubles. It covers initial state, listener timing, subsequent updates, new preset slots
 and missing local units. It does not launch the game or replace the 32-bit Windows DLL build.
 
+`tests/native_callback_order.py` exercises the production cast and aura-removal registrars and detours
+against the original DLL's measured linked-list traversal, including registration permutations and vetoes.
+The original uses MSVC `unordered_set` callbacks: cast checks run aura requirements, stack requirements,
+then class requirements; aura removal runs `AscAura137` before `AscSpellMods`. These two snapshots include
+all corresponding callbacks in this source. Their native hash-bucket relationships remain identical
+at every allocation-aligned 32-bit image base, so relocating the DLL preserves these orders.
+Aura application, effect filtering and visual hiding still
+use call-site ordering: their startup snapshots do not yet cover every reconstructed callback. Future
+unknown callbacks in the two measured lists follow the captured entries in call-site order.
+
 ## Building
 
 32-bit MSVC (Visual Studio 2022 Build Tools), CMake and Ninja, from an x86 developer prompt (`vcvars32.bat`):

@@ -1,4 +1,5 @@
 #include <Ascension/AscRuntime.hpp>
+#include <Ascension/AscCallbackOrder.hpp>
 #include <Ascension/AscLog.hpp>
 #include <Ascension/AscScript.hpp>
 #include <Misc/DataContainer.hpp>
@@ -771,8 +772,18 @@ void OnAfter52A980(Callback cb) { After52A980List().push_back(cb); }
 void OnAfterTargetChange(Callback cb) { AfterTargetList().push_back(cb); }
 void OnBefore6ECF80(void (*cb)(uint32_t)) { Before6ECF80List().push_back(cb); }
 void OnBefore724820(UnitSpellVeto cb, uint32_t site) { InsertBySite(Before724820List(), cb, site); }
-void OnBefore71E930(UnitSpellVeto cb, uint32_t site) { InsertBySite(Before71E930List(), cb, site); }
-void OnAfter80B5D0(CastVeto cb, uint32_t site) { InsertBySite(After80B5D0List(), cb, site); }
+void OnBefore71E930(UnitSpellVeto cb, uint32_t site)
+{
+    // Closed native list 0x10BE2B8C: AscAura137::BeforeRemove, AscSpellMods::AuraFlagOff.
+    static const uint32_t order[] = {0x10A683DA, 0x10324DA4};
+    InsertByCapturedOrder(Before71E930List(), cb, site, order);
+}
+void OnAfter80B5D0(CastVeto cb, uint32_t site)
+{
+    // Closed native list 0x10BE2DD8: AuraRequirement, StackRequirement, CastRequirements.
+    static const uint32_t order[] = {0x10324DB8, 0x10324DAE, 0x10171F65};
+    InsertByCapturedOrder(After80B5D0List(), cb, site, order);
+}
 void OnEffectFilter(EffectFilter cb, uint32_t site) { InsertBySite(EffectFilterList(), cb, site); }
 void OnVisualHide(VisualHide cb, uint32_t site) { InsertBySite(VisualHideList(), cb, site); }
 bool VisualHidden(uint32_t kind, uint32_t guidLo, uint32_t guidHi, uint32_t spell)

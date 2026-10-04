@@ -119,8 +119,8 @@ namespace AscRuntime
     //   FUN_102783D0 -> list 0x10BE2DD8, the detour 0x10277900 over 0x80B5D0 (__cdecl, 5 arguments,
     //                   returns bool): the original first; only when it is true, callbacks (a..e).
     typedef bool (__cdecl* UnitSpellVeto)(void* unit, uint32_t a, uint32_t b);
-    // `site` = the address of the original's registration call; the lists run in that order (the module
-    // inits that register them are called from the encrypted region, so the real order is unmeasured).
+    // `site` identifies the original registration call. The aura-removal and cast lists use the measured
+    // native unordered_set traversal. Other lists retain call-site ordering until fully measured.
     void OnBefore724820(UnitSpellVeto cb, uint32_t site);
     void OnBefore71E930(UnitSpellVeto cb, uint32_t site);
     // FUN_10278800 -> list 0x10BE2D78: (unit, spell effect object) -> true removes the effect (0x6F87C0).

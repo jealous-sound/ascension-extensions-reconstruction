@@ -1,0 +1,24 @@
+{
+  "dll_sha256": "0f8d847b3adc44a963606f0cd4f7938ad6fcd6f4d87feac3131c7153bdf3bb11",
+  "image_base": "0x10000000",
+  "hash_helper": "0x100996e0",
+  "hash": "FNV-1a over four little-endian relocated callback-pointer bytes",
+  "bucket_mask": 7,
+  "method": "Offline x86 startup emulation; follow head->next nodes to head, reading callback at node+8; closed list count verified.",
+  "limits": "Observed startup prefix only; later original-only registrations and other lists are unmeasured.",
+  "Before71E930": {
+    "object": "0x10be2b8c",
+    "callbacks": [
+      {"name": "AscAura137::BeforeRemove", "function": "0x10a4e330", "site": "0x10a683da"},
+      {"name": "AscSpellMods::AuraFlagOff", "function": "0x10325b50", "site": "0x10324da4"}
+    ]
+  },
+  "After80B5D0": {
+    "object": "0x10be2dd8",
+    "callbacks": [
+      {"name": "AscSpellMods::AuraRequirement", "function": "0x10326780", "site": "0x10324db8"},
+      {"name": "AscSpellMods::StackRequirement", "function": "0x103267e0", "site": "0x10324dae"},
+      {"name": "AscCAMgr::CastRequirements", "function": "0x1016fde0", "site": "0x10171f65"}
+    ]
+  }
+}
