@@ -20,6 +20,7 @@
 // ItemDisplayInfoCollections.dbc rows (0x20): {id, displayId, attach, attachHD, model, texture, scale,
 // scaleHD}; the HD columns are used when patch-Q is loaded (AscRealmData::HdPatchLoaded).
 #include <Ascension/AscBindings.hpp>
+#include <Ascension/AscCrashContext.hpp>
 #include <Ascension/AscScript.hpp>
 #include <Ascension/AscRuntime.hpp>
 #include <Ascension/AscRealmData.hpp>
@@ -51,7 +52,6 @@ namespace
     bool g_capture = false;             // DAT_10be357c
     void* g_captured = nullptr;         // DAT_10be3578
     float g_pendingScale = 0.0f;        // DAT_10bcbedc
-    std::string g_lastModelName;        // DAT_10bcbcb0 ("Last Loaded M2 Name (CM2Shared)" in crash reports)
     uint32_t g_arg4F9F70[2] = {};       // DAT_10be3580 / 3584 (written only)
 
     // Model ids: every model 0x81F8F0 creates gets one (FUN_102ca9c0); the counter starts at 1 and
@@ -257,7 +257,8 @@ namespace
     Fn2_t g_81F8F0 = nullptr;
     int __fastcall Detour81F8F0(void* ecx, void* edx, uint32_t name, uint32_t b)
     {
-        g_lastModelName = reinterpret_cast<const char*>(name);   // FUN_1008aee0: assign, unchecked
+        // DAT_10bcbcb0, the crash report's "Last Loaded M2 Name (CM2Shared)". FUN_1008aee0: assign, unchecked.
+        AscCrashContext::g_m2Shared = reinterpret_cast<const char*>(name);
         void* model = reinterpret_cast<void*>(g_81F8F0(ecx, edx, name, b));
         AscGeosets_ModelCreated(model);   // the geoset module's own hook on 0x81F8F0 (FUN_101a14f0)
         if (model)
