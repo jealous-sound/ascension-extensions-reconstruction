@@ -10,4 +10,7 @@ namespace AscLogger
     void Write(uint32_t channel, const std::string& line);
     // FUN_10293aa0: Write, but each distinct line only once per channel (a seen-set keyed by the text).
     void WriteOnce(uint32_t channel, const std::string& line);
+    // FUN_102936d0: Write of "[YYYY-MM-DD HH:MM:SS.mmm] <line>" (local time, milliseconds zero-padded),
+    // used by the native managers' diagnostics (GMTicketMgr, PlayerTicketMgr, PlayerPollMgr).
+    void WriteStamped(uint32_t channel, const std::string& line);
 }

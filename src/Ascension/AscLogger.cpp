@@ -181,6 +181,25 @@ namespace
 
 void AscLogger::Write(uint32_t channel, const std::string& line) { ::Write(channel, line); }
 
+// FUN_102936d0: _Xtime_get_ticks (100 ns since 1970) split into seconds (localtime64_s, put_time
+// "%Y-%m-%d %H:%M:%S") and milliseconds (setfill('0') << setw(3)), then "[{}] {}" to the channel.
+void AscLogger::WriteStamped(uint32_t channel, const std::string& line)
+{
+    if (channel >= 10 || !g_streams[channel])
+        return;
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    const uint64_t ticks = ((static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime) - 116444736000000000ull;
+    const __time64_t seconds = static_cast<__time64_t>(ticks / 10000000);
+    const unsigned ms = static_cast<unsigned>((ticks / 10000) % 1000);
+    tm local;
+    _localtime64_s(&local, &seconds);
+    char stamp[32];
+    const size_t n = strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+    snprintf(stamp + n, sizeof(stamp) - n, ".%03u", ms);
+    ::Write(channel, std::string("[") + stamp + "] " + line);
+}
+
 void AscLogger::WriteOnce(uint32_t channel, const std::string& line)
 {
     static std::unordered_set<std::string> seen[10];

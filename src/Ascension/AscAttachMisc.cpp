@@ -41,11 +41,13 @@ namespace
         const uint8_t* const* entries = *reinterpret_cast<const uint8_t* const* const*>(table + 8);
         if (entries && id >= 0 && static_cast<uint32_t>(id) < count && entries[id])
             return g_81AC90(id, format, va);
-        char line[512];
+        // FUN_10a79130 formats `format` as a pointer (its std::format argument type 0xA), not as text.
+        char line[256];
         snprintf(line, sizeof(line),
                  "Blocked invalid FrameScript signal event at 0x0081AC90: eventId=%d, registeredEventCount=%u, "
-                 "format=%s, vaList=0x%X, hasEventData=%s, hasEventObject=false",
-                 id, count, format ? format : "", reinterpret_cast<uint32_t>(va), entries ? "true" : "false");
+                 "format=0x%x, vaList=0x%X, hasEventData=%s, hasEventObject=false",
+                 id, count, reinterpret_cast<uint32_t>(format), reinterpret_cast<uint32_t>(va),
+                 entries ? "true" : "false");
         AscLogger::Write(5, line);
         return 0;
     }

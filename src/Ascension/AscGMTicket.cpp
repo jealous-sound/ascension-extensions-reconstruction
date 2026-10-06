@@ -35,6 +35,7 @@
 #include <Ascension/AscAccount.hpp>
 #include <Ascension/AscBindings.hpp>
 #include <Ascension/AscLog.hpp>
+#include <Ascension/AscLogger.hpp>
 #include <Ascension/AscRuntime.hpp>
 #include <Ascension/AscScript.hpp>
 #include <Client/CDataStore.hpp>
@@ -42,6 +43,8 @@
 #include <Misc/DataContainer.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -1605,6 +1608,23 @@ namespace
     }
 
     // ---- packet handlers ------------------------------------------------------------------------
+    // The managers' diagnostics go through the original's timestamped channel writer (FUN_102936d0):
+    // 1 Info for changes, 2 Debug for progress and fired events, 4 Error for an unknown ticket.
+    void Diag(uint32_t channel, const char* fmt, ...)
+    {
+        va_list ap;
+        va_start(ap, fmt);
+        va_list copy;
+        va_copy(copy, ap);
+        const int n = vsnprintf(nullptr, 0, fmt, copy);
+        va_end(copy);
+        std::string line(n > 0 ? static_cast<size_t>(n) : 0, '\0');
+        if (n > 0)
+            vsnprintf(&line[0], static_cast<size_t>(n) + 1, fmt, ap);
+        va_end(ap);
+        AscLogger::WriteStamped(channel, line);
+    }
+
     void __cdecl OnTicketList(void*, uint32_t, uint32_t, CDataStore* p)   // 0x709
     {
         if (Read<uint8_t>(p))
@@ -1625,38 +1645,96 @@ namespace
         AscRuntime::Signal("GM_TICKET_FILTER_RESET");
     }
 
-    void __cdecl OnTicketUpdate(void*, uint32_t, uint32_t, CDataStore* p)   // 0x70B
+    void __cdecl OnTicketUpdate(void*, uint32_t, uint32_t, CDataStore* p)   // 0x70B (FUN_1024af30)
     {
+        static const char kTag[] = "GMTicketMgr::HandleGMTicketUpdateOpcode: ";
+        Diag(2, "%sBegin processing ticket update", kTag);
         Ticket fresh = ReadTicket(p);
+        const char* id = fresh.ticketId.c_str();
+        Diag(2, "%sProcessing ticket ID: %s", kTag, id);
         Ticket* slot = FindTicket(fresh.ticketId);
         if (!slot)
         {
-            AscLog::Printf("GMTicketMgr: update for unknown ticket %s ignored", fresh.ticketId.c_str());
+            Diag(4, "%sTicket %s not found", kTag, id);
             return;
         }
         const Ticket old = *slot;
         *slot = fresh;
-        const char* id = fresh.ticketId.c_str();
+        Diag(2, "%sFound and updated existing ticket: %s", kTag, id);
 
         bool statusChanged = false;
         if (old.status != fresh.status)
         {
+            Diag(1, "%sTicket %s status changed from %d to %d", kTag, id, old.status, fresh.status);
             if (old.Closed() != fresh.Closed())
+            {
+                Diag(1, "%sTicket %s closure state changed: %s -> %s", kTag, id, old.Closed() ? "Closed" : "Open",
+                     fresh.Closed() ? "Closed" : "Open");
                 AscRuntime::Signal("GM_TICKETS_UPDATED");
+                Diag(2, "%sFired GM_TICKETS_UPDATED event", kTag);
+            }
             statusChanged = true;
         }
+        if (old.assignedTo.size() != fresh.assignedTo.size())
+        {
+            Diag(1, "%sTicket %s assignment count changed: %u -> %u", kTag, id,
+                 static_cast<uint32_t>(old.assignedTo.size()), static_cast<uint32_t>(fresh.assignedTo.size()));
+            if (!fresh.assignedTo.empty())
+            {
+                std::string names;
+                for (const std::string& n : fresh.assignedTo)
+                {
+                    if (!names.empty())
+                        names += ", ";
+                    names += n;
+                }
+                Diag(1, "%sTicket %s assigned to: %s", kTag, id, names.c_str());
+            }
+        }
         if (old.assignedTo.size() != fresh.assignedTo.size() || statusChanged)
+        {
             AscRuntime::Signal("GM_TICKET_STATUS_CHANGED", "%s", id);
+            Diag(2, "%sFired GM_TICKET_STATUS_CHANGED event for ticket %s", kTag, id);
+        }
         if (old.messages.size() != fresh.messages.size())
+        {
+            Diag(1, "%sTicket %s message count changed: %u -> %u", kTag, id,
+                 static_cast<uint32_t>(old.messages.size()), static_cast<uint32_t>(fresh.messages.size()));
+            if (old.messages.size() < fresh.messages.size())
+                Diag(1, "%sNew message (ID: %u) from: %s", kTag, fresh.messages.back().messageId,
+                     fresh.messages.back().sender.c_str());
             AscRuntime::Signal("GM_TICKET_MESSAGE", "%s", id);
+            Diag(2, "%sFired GM_TICKET_MESSAGE event for ticket %s", kTag, id);
+        }
         if (old.hasAISuggestion != fresh.hasAISuggestion
             || (old.hasAISuggestion && old.aiSuggestion != fresh.aiSuggestion))
+        {
+            Diag(1, "%sTicket %s AI suggestion changed", kTag, id);
             AscRuntime::Signal("GM_TICKET_SUGGESTION_UPDATE", "%s", id);
+            Diag(2, "%sFired GM_TICKET_SUGGESTION_UPDATE event for ticket %s", kTag, id);
+        }
+        Diag(2, "%sChecking read receipts for %u messages in ticket %s", kTag,
+             static_cast<uint32_t>(fresh.messages.size()), id);
         for (size_t i = 0; i < fresh.messages.size() && i < old.messages.size(); ++i)
-            for (size_t j = old.messages[i].receipts.size(); j < fresh.messages[i].receipts.size(); ++j)
-                AscRuntime::Signal("GM_TICKET_MESSAGE_READ", "%s%u", id, fresh.messages[i].messageId);
+        {
+            const Message& m = fresh.messages[i];
+            const size_t had = old.messages[i].receipts.size();
+            if (m.receipts.size() <= had)
+                continue;
+            Diag(1, "%sMessage %u in ticket %s has new read receipts: %u -> %u", kTag, m.messageId, id,
+                 static_cast<uint32_t>(had), static_cast<uint32_t>(m.receipts.size()));
+            for (size_t j = had; j < m.receipts.size(); ++j)
+                Diag(1, "%sMessage %u in ticket %s read by: %s", kTag, m.messageId, id, m.receipts[j].readBy.c_str());
+            for (size_t j = had; j < m.receipts.size(); ++j)
+            {
+                AscRuntime::Signal("GM_TICKET_MESSAGE_READ", "%s%u", id, m.messageId);
+                Diag(2, "%sFired GM_TICKET_MESSAGE_READ event for message %u in ticket %s", kTag, m.messageId, id);
+            }
+        }
         ResetView();
         AscRuntime::Signal("GM_TICKET_FILTER_RESET");
+        Diag(2, "%sFired GM_TICKET_FILTER_RESET event", kTag);
+        Diag(2, "%sFinished processing ticket update", kTag);
     }
 
     void __cdecl OnPlayerInfoResult(void*, uint32_t, uint32_t, CDataStore* p)   // 0x71C
@@ -1678,32 +1756,63 @@ namespace
         AscRuntime::Signal("PLAYER_TICKET_UPDATE");
     }
 
-    void __cdecl OnPlayerTicketUpdate(void*, uint32_t, uint32_t, CDataStore* p)   // 0x702
+    void __cdecl OnPlayerTicketUpdate(void*, uint32_t, uint32_t, CDataStore* p)   // 0x702 (FUN_10253ec0)
     {
+        static const char kTag[] = "PlayerTicketMgr::HandlePlayerGMTicketUpdateOpcode: ";
+        Diag(2, "%sBegin processing player ticket update", kTag);
         const bool had = g_hasCurrent;
         const Ticket old = g_current;
         g_current = ReadTicket(p);
         g_hasCurrent = true;
+        // The original's "No ticket in update" branch cannot run: the read always leaves a ticket.
+        Diag(2, "%sProcessing player ticket ID: %s", kTag, g_current.ticketId.c_str());
 
         bool fire = false;
         if (had)
         {
+            Diag(2, "%sBoth old and new tickets exist, checking changes", kTag);
             // A hidden last message in the old ticket suppresses the message-count checks.
             const bool hidden = !old.messages.empty() && !old.messages.back().hasMessage;
+            if (hidden)
+                Diag(2, "%sLast message in old ticket was hidden", kTag);
+            const bool statusChanged = old.status != g_current.status;
+            if (statusChanged)
+                Diag(1, "%sTicket status changed from %d to %d", kTag, old.status, g_current.status);
             const bool countChanged = !hidden && old.messages.size() != g_current.messages.size();
-            fire = old.status != g_current.status || countChanged;
+            if (countChanged)
+                Diag(1, "%sMessage count changed: %u -> %u (last hidden: no)", kTag,
+                     static_cast<uint32_t>(old.messages.size()), static_cast<uint32_t>(g_current.messages.size()));
+            fire = statusChanged || countChanged;
+            if (fire)
+                Diag(1, "%sWill send update event due to: status changed=%s, messages changed=%s", kTag,
+                     statusChanged ? "true" : "false", countChanged ? "true" : "false");
             if (!hidden && old.messages.size() < g_current.messages.size())
-                AscRuntime::Signal("PLAYER_TICKET_NEW_MESSAGE", "%u", g_current.messages.back().messageId);
+            {
+                const Message& last = g_current.messages.back();
+                Diag(1, "%sNew message added (ID: %u) from: %s", kTag, last.messageId, last.sender.c_str());
+                AscRuntime::Signal("PLAYER_TICKET_NEW_MESSAGE", "%u", last.messageId);
+                Diag(2, "%sFired PLAYER_TICKET_NEW_MESSAGE event for message ID %u", kTag, last.messageId);
+            }
             if (g_current.closedByCreator)
             {
+                Diag(1, "%sClearing ticket %s because it's closed by creator", kTag, g_current.ticketId.c_str());
                 g_hasCurrent = false;   // the player closed it: forget it
                 fire = true;
             }
         }
         else if (!g_current.closedByCreator)
+        {
+            Diag(1, "%sGM reopened a ticket previously closed by player", kTag);
             fire = true;                // a GM reopened a ticket the player had closed
+        }
         if (fire)
+        {
             AscRuntime::Signal("PLAYER_TICKET_UPDATE");
+            Diag(2, "%sFired PLAYER_TICKET_UPDATE event", kTag);
+        }
+        else
+            Diag(2, "%sNo PLAYER_TICKET_UPDATE event needed", kTag);
+        Diag(2, "%sFinished processing player ticket update", kTag);
     }
 
     // The result handlers of both managers: a C string, signalled as the event's "%s". 0x706 / 0x71E pick

@@ -1,9 +1,12 @@
 #include <Ascension/AscRuntime.hpp>
 #include <Ascension/AscLog.hpp>
+#include <Ascension/AscCrashContext.hpp>
+#include <Ascension/AscLogger.hpp>
 #include <Ascension/AscScript.hpp>
 #include <Misc/DataContainer.hpp>
 #include <Client/FrameScript.hpp>
 #include <Windows.h>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <array>
@@ -30,14 +33,37 @@ namespace
     std::vector<Callback>& After403340List() { static std::vector<Callback> v; return v; }
 
     // 0x81AA00 begins push ebp / mov ebp,esp / sub esp,0xC: six bytes.
+    // FUN_102766c0. A call without a Lua state, or with an id past the client's event table (0xD3F7D0,
+    // via DAT_10bcb500) or with no entry there, is refused: logged to the Fatal channel and the original
+    // is not run. Otherwise the id's callbacks run, then the event's name (entry +0x14), when it has one,
+    // becomes the crash report's "Last FrameScript_SignalEvent" (DAT_10bcbcc8), then the original runs.
+    // The original also looks the name up in a second, name-keyed callback map (DAT_10be2d38), inserting an
+    // empty list; nothing ever registers there, so it is not reproduced.
     typedef int(__cdecl* Dispatch_t)(int, lua_State*, int);
     Dispatch_t g_dispatchTrampoline = nullptr;
     int __cdecl DispatchDetour(int eventId, lua_State* L, int nargs)
     {
-        if (L)
-            for (auto& e : StockEventList())
-                if (e.first == eventId)
-                    e.second(L);
+        const uint8_t* table = reinterpret_cast<const uint8_t*>(0xD3F7D0);
+        const uint32_t count = *reinterpret_cast<const uint32_t*>(table + 4);
+        const uint8_t* const* entries = *reinterpret_cast<const uint8_t* const* const*>(table + 8);
+        const bool hasEventObject = entries && eventId >= 0 && static_cast<uint32_t>(eventId) < count && entries[eventId];
+        if (!L || !hasEventObject)
+        {
+            char line[256];
+            snprintf(line, sizeof(line),
+                     "Blocked invalid FrameScript signal event at 0x0081AA00: eventId=%d, registeredEventCount=%u, "
+                     "luaState=0x%x, hasEventData=%s, hasEventObject=%s",
+                     eventId, count, reinterpret_cast<uint32_t>(L), entries ? "true" : "false",
+                     hasEventObject ? "true" : "false");
+            AscLogger::Write(5, line);
+            return 0;
+        }
+        for (auto& e : StockEventList())
+            if (e.first == eventId)
+                e.second(L);
+        const char* name = *reinterpret_cast<const char* const*>(entries[eventId] + 0x14);
+        if (name && *name)
+            AscCrashContext::g_signalEvent = name;
         return g_dispatchTrampoline(eventId, L, nargs);
     }
 
