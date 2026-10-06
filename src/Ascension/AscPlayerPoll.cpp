@@ -12,11 +12,13 @@
 // RequestQuestionList: CMSG 0x745. SubmitAnswer: CMSG 0x747 {u32 question id, u8 has choice
 // [u32 choice id], u8 has feedback [str feedback]}.
 #include <Ascension/AscBindings.hpp>
+#include <Ascension/AscLogger.hpp>
 #include <Ascension/AscRuntime.hpp>
 #include <Ascension/AscScript.hpp>
 #include <Client/CDataStore.hpp>
 #include <Client/CNetClient.hpp>
 #include <Misc/DataContainer.hpp>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -120,7 +122,7 @@ namespace
         }
     }
 
-    void __cdecl OnPollList(void*, uint32_t, uint32_t, CDataStore* p)
+    void __cdecl OnPollList(void*, uint32_t opcode, uint32_t, CDataStore* p)   // FUN_102d7d90
     {
         const bool before = g_unanswered;
         std::vector<Question> list;
@@ -128,9 +130,13 @@ namespace
             list.push_back(ReadQuestion(p));
         g_questions.swap(list);
         Recompute(before);
+        char line[128];
+        snprintf(line, sizeof(line), "PlayerPollMgr::HandlePlayerPollListOpcode: Received %u polls for opcode %u",
+                 static_cast<uint32_t>(g_questions.size()), opcode);
+        AscLogger::WriteStamped(2, line);   // FUN_102936d0, Debug
     }
 
-    void __cdecl OnSubmitResult(void*, uint32_t, uint32_t, CDataStore* p)
+    void __cdecl OnSubmitResult(void*, uint32_t opcode, uint32_t, CDataStore* p)   // FUN_102d8030
     {
         const std::string result = ReadStr(p);
         uint32_t pollId = 0;
@@ -154,6 +160,8 @@ namespace
         else
             Recompute(true);
         AscRuntime::Signal("PLAYER_POLL_ANSWER_RESULT", "%s%u", result.c_str(), pollId);
+        AscLogger::WriteStamped(2, "PlayerPollMgr::HandlePlayerPollSubmitResultOpcode: result=" + result
+                                       + " pollID=" + std::to_string(pollId) + " opcode=" + std::to_string(opcode));
     }
 
     // Returns the question for a 1-based index, raising the original's Lua errors otherwise.
